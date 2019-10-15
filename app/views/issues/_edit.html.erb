@@ -1,0 +1,189 @@
+<%= labelled_form_for @issue, :html => {:id => 'issue-form', :multipart => true} do |f| %>
+  <%= hidden_field_tag :forwarding_url, params[:forwarding_url] %>
+  <%= error_messages_for 'issue', 'time_entry' %>
+  <%= render :partial => 'conflict' if @conflict %>
+  <div class="box">
+    <% if @issue.attributes_editable? %>
+      <fieldset class="tabular"><legend><%= l(:label_change_properties) %></legend>
+        <div id="all_attributes">
+          <%= render :partial => 'form', :locals => {:f => f} %>
+        </div>
+      </fieldset>
+    <% end %>
+    <% if User.current.allowed_to?(:log_time, @project) %>
+      <fieldset class="tabular"><legend><%= l(:button_log_time) %></legend>
+        <%= labelled_fields_for :time_entry, @time_entry do |time_entry| %>
+          <div class="splitcontent">
+            <div class="splitcontentleft">
+              <p><%= time_entry.hours_field :hours, :size => 6, :label => :label_spent_time %> <%= l(:field_hours) %></p>
+            </div>
+            <div class="splitcontentright">
+              <p><%= time_entry.select :activity_id, activity_collection_for_select_options %></p>
+            </div>
+          </div>
+          <p><%= time_entry.text_field :comments, :size => 60 %></p>
+          <% @time_entry.custom_field_values.each do |value| %>
+            <p><%= custom_field_tag_with_label :time_entry, value %></p>
+          <% end %>
+        <% end %>
+      </fieldset>
+    <% end %>
+    <% if @issue.notes_addable? %>
+      <fieldset><legend><%= l(:field_notes) %></legend>
+        <%= f.text_area :notes, :cols => 60, :rows => 10, :class => 'wiki-edit', :no_label => true %>
+        <%= wikitoolbar_for 'issue_notes', preview_issue_path(:project_id => @project, :issue_id => @issue) %>
+
+        <% if @issue.safe_attribute? 'private_notes' %>
+          <%= f.check_box :private_notes, :no_label => true %> <label for="issue_private_notes"><%= l(:field_private_notes) %></label>
+        <% end %>
+
+        <%= call_hook(:view_issues_edit_notes_bottom, { :issue => @issue, :notes => @notes, :form => f }) %>
+      </fieldset>
+
+      <fieldset><legend><%= l(:label_attachment_plural) %></legend>
+        <% if @issue.attachments.any? && @issue.safe_attribute?('deleted_attachment_ids') %>
+          <div class="contextual"><%= link_to l(:label_edit_attachments), '#', :onclick => "$('#existing-attachments').toggle(); return false;" %></div>
+          <div id="existing-attachments" style="<%= @issue.deleted_attachment_ids.blank? ? 'display:none;' : '' %>">
+            <% @issue.attachments.each do |attachment| %>
+              <span class="existing-attachment">
+                <%= text_field_tag '', attachment.filename, :class => "icon icon-attachment filename", :disabled => true %>
+                <label>
+                  <%= check_box_tag 'issue[deleted_attachment_ids][]',
+                   attachment.id,
+                   @issue.deleted_attachment_ids.include?(attachment.id),
+                   :id => nil, :class => "deleted_attachment" %> <%= l(:button_delete) %>
+                </label>
+              </span>
+            <% end %>
+            <hr />
+          </div>
+        <% end %>
+
+        <div id="new-attachments" style="display:inline-block;">
+          <%= render :partial => 'attachments/form', :locals => {:container => @issue} %>
+        </div>
+      </fieldset>
+    <% end %>
+  </div>
+
+  <% if User.current.allowed_to?(:project_process, nil, :global => true) %>
+    <p class="issue_process"></p>
+  <% end %>
+
+  <%= f.hidden_field :lock_version %>
+  <%= hidden_field_tag 'last_journal_id', params[:last_journal_id] || @issue.last_journal_id %>
+
+  <%= submit_tag l(:button_submit) %>
+
+  <%= link_to l(:button_cancel), issue_path(id: @issue.id), :onclick => params[:action] == 'show' ? "$('#update').hide(); return false;" : '' %>
+
+  <%= hidden_field_tag 'prev_issue_id', @prev_issue_id if @prev_issue_id %>
+  <%= hidden_field_tag 'next_issue_id', @next_issue_id if @next_issue_id %>
+  <%= hidden_field_tag 'issue_position', @issue_position if @issue_position %>
+  <%= hidden_field_tag 'issue_count', @issue_count if @issue_count %>
+<% end %>
+
+
+<%= javascript_tag do %>
+
+  $(document).ready(function() {
+    var issueId = $('#content h2').text();
+    issueId = issueId.substring(issueId.lastIndexOf("#") + 1);
+    $.ajax({
+    url: 'http://10.55.123.80:8081/redmine-jbpm-intergration/api/v1/process-container/status?key=25304089a591cf457f3a6d1073e405d980133d94&issueId=' + issueId,
+    type: 'GET',
+    success: function(data) {
+      if(data.data == 2){
+          var projectId = $('#issue_project_id').val();
+
+          var processChoosen = '<div class="issues box" id="projectprocess" style="min-height: 165px;"><h3 class="icon icon-projects">Project process</h3>';
+          processChoosen += '<label>Process:<span class="required"> *</span></label><select id="process-definition" style="width: 50%; margin-left: 5px; margin-right: 20px;"><option value="">Select process</option>';
+          $.ajax({
+          url: 'http://10.55.123.80:8081/redmine-jbpm-intergration/api/v1/process-container/list',
+          type: 'GET',
+          success: function(data) {
+          var obj = JSON.parse(JSON.stringify(data.data));
+          obj.forEach(function(element) {
+          processChoosen += '<option value="'+element.processDefinition+'">'+element.quyTrinh.name+'</option>';
+          });
+          processChoosen += '</select>';
+          processChoosen += '<input type="button" value="Bắt đầu quy trình" id="start-process" />';
+          processChoosen += '</div>';
+
+          if(ViewCustomize.context.project!=null){$('.issue_process').prepend(processChoosen);}
+
+          $('#start-process').click(function(){
+
+              console.log($('#process-definition').val());
+              if($('#process-definition').val()=='' || $('#process-definition').val() == null){
+              alert('Please select process');
+              return;
+          }
+
+          var data = {
+            projectCode: ViewCustomize.context.project.identifier,
+            processDefinitionId: $('#process-definition').val(),
+            issueId: $('#content h2').text().substring($('#content h2').text().lastIndexOf("#") + 1),
+            type: 1
+          };
+
+
+          $.ajax({
+            url: 'http://10.55.123.80:8081/redmine-jbpm-intergration/api/v1/jbpm/process/start?key=25304089a591cf457f3a6d1073e405d980133d94',
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: "application/json; charset=utf-8",
+            success: function(data) {
+              if(data.code==1){
+                console.log('Start process successfully.');
+              }
+            },
+            error: function(error) {
+              console.log(error);
+            }
+            });
+
+          });
+
+
+          },
+          error: function(error) {
+            console.log(error);
+          }
+
+          });
+
+          $('input[name="commit"]').click(function(){
+
+          $.ajax({
+
+            url: 'http://10.55.123.80:8081/redmine-jbpm-intergration/api/v1/jbpm/task/complete?issueid='+ issueId + '&key=25304089a591cf457f3a6d1073e405d980133d94',
+            type: 'POST',
+            data: JSON.stringify({"taskContent": $('#issue_notes').val(), "branch": $('#issue_status_id').val(), "projectCode" : projectId}),
+            contentType: "application/json; charset=utf-8",
+
+            success: function(data) {
+            console.log('POST ISSUE' + data.code);
+
+            if(data.code==1){
+
+              console.log('Completed');
+
+            }
+           },
+            error: function(error) {
+               console.log(error);
+            }
+
+           });
+
+          });
+      }
+    },
+    error: function(error) {
+      console.log(error);
+    }
+    });
+  });
+
+<% end %>
